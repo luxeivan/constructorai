@@ -3,16 +3,21 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: werstakoff
-      POSTGRES_PASSWORD: werstakoff
-      POSTGRES_DB: werstakoff
+      POSTGRES_USER: ${POSTGRES_USER:-werstakoff}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-werstakoff}
+      POSTGRES_DB: ${POSTGRES_DB:-werstakoff}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U werstakoff -d werstakoff"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-werstakoff} -d ${POSTGRES_DB:-werstakoff}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
@@ -24,6 +29,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: *logging
 
   api:
     build:
@@ -39,15 +45,13 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: postgresql://werstakoff:werstakoff@postgres:5432/werstakoff
-      REDIS_URL: redis://redis:6379
-      STORAGE_DRIVER: fs
-      STORAGE_DIR: /app/storage
-      MINIO_BUCKET: werstakoff
-      PUBLIC_BASE_URL: http://localhost:8080
-      ADMIN_LOGIN: admin
-      ADMIN_PASSWORD: admin12345
-      AI_SESSION_BUDGET_RUB: 60
+      DATABASE_URL: ${DATABASE_URL:-postgresql://werstakoff:werstakoff@postgres:5432/werstakoff}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-fs}
+      STORAGE_DIR: ${STORAGE_DIR:-/app/storage}
+      MINIO_BUCKET: ${MINIO_BUCKET:-werstakoff}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8081}
+      AI_SESSION_BUDGET_RUB: ${AI_SESSION_BUDGET_RUB:-60}
       CATALOG_FILE: /app/items.json
     volumes:
       - storagedata:/app/storage
@@ -61,6 +65,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+    logging: *logging
 
   worker:
     build:
@@ -72,18 +77,19 @@ services:
       - .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://werstakoff:werstakoff@postgres:5432/werstakoff
-      REDIS_URL: redis://redis:6379
-      STORAGE_DRIVER: fs
-      STORAGE_DIR: /app/storage
-      MINIO_BUCKET: werstakoff
-      AI_SESSION_BUDGET_RUB: 60
+      DATABASE_URL: ${DATABASE_URL:-postgresql://werstakoff:werstakoff@postgres:5432/werstakoff}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-fs}
+      STORAGE_DIR: ${STORAGE_DIR:-/app/storage}
+      MINIO_BUCKET: ${MINIO_BUCKET:-werstakoff}
+      AI_SESSION_BUDGET_RUB: ${AI_SESSION_BUDGET_RUB:-60}
       CATALOG_FILE: /app/items.json
     volumes:
       - storagedata:/app/storage
     depends_on:
       api:
         condition: service_healthy
+    logging: *logging
 
   web:
     build:
@@ -94,7 +100,9 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "8081:80"
+      # Только локально: наружу сайт отдаёт host-nginx с TLS.
+      - "127.0.0.1:${WEB_PORT:-8081}:80"
+    logging: *logging
 
 volumes:
   pgdata:

@@ -39,10 +39,11 @@ async function main() {
   const password = process.env.ADMIN_PASSWORD ?? "admin12345";
   const passwordHash = await hash(password);
 
-  const existing = await prisma.adminUser.findUnique({ where: { login } });
-  if (!existing) {
-    await prisma.adminUser.create({ data: { login, passwordHash } });
-  }
+  await prisma.adminUser.upsert({
+    where: { login },
+    update: { passwordHash },
+    create: { login, passwordHash },
+  });
 
   await prisma.setting.upsert({
     where: { key: "company" },
