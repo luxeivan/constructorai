@@ -619,7 +619,7 @@ export function ProjectPage() {
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-brand border-t-transparent" />
             <div>
               <p className="font-semibold">Готовим варианты расстановки</p>
-              <p className="text-sm text-neutral-500">Это занимает до минуты на вариант.</p>
+              <p className="text-sm text-neutral-500">Генерируем три варианта параллельно — обычно 2–3 минуты.</p>
             </div>
           </div>
           {details.selection ? <SelectionTable selection={details.selection} /> : null}

@@ -96,6 +96,11 @@ worker.on("failed", async (job, error) => {
   }
 });
 
+await prisma.aiJob.updateMany({
+  where: { status: "running" },
+  data: { status: "interrupted", error: "Worker был перезапущен", finishedAt: new Date() },
+});
+
 console.log("Worker запущен, очередь:", AI_QUEUE);
 
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;

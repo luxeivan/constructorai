@@ -184,14 +184,31 @@ projectsRouter.get("/:id", async (req, res, next) => {
             })),
           }
         : null,
-      renders: full.renders.map((render) => ({
-        id: render.id,
-        kind: render.kind,
-        variantIndex: render.variantIndex,
-        url: fileUrl(render.fileId),
-        approved: render.approved,
-        createdAt: render.createdAt,
-      })),
+      renders: [
+        ...full.renders
+          .filter((render) => render.kind === "preview")
+          .filter((render) => !render.selectionId || render.selectionId === selection?.id)
+          .filter((render, index, list) => list.findIndex((item) => item.variantIndex === render.variantIndex) === index)
+          .map((render) => ({
+            id: render.id,
+            kind: render.kind,
+            variantIndex: render.variantIndex,
+            url: fileUrl(render.fileId),
+            approved: render.approved,
+            createdAt: render.createdAt,
+          })),
+        ...full.renders
+          .filter((render) => render.kind === "final")
+          .slice(0, 1)
+          .map((render) => ({
+            id: render.id,
+            kind: render.kind,
+            variantIndex: render.variantIndex,
+            url: fileUrl(render.fileId),
+            approved: render.approved,
+            createdAt: render.createdAt,
+          })),
+      ],
       corrections: full.corrections.map((correction) => ({
         id: correction.id,
         text: correction.text,

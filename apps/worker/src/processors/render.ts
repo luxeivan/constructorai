@@ -43,7 +43,7 @@ export async function processRender(input: {
     color: item.variant.color,
   }));
 
-  const productImages = [];
+  const productImages: Array<{ type: "base64"; data: string }> = [];
   for (const item of selection.items.slice(0, 8)) {
     if (!item.variant.imageFileId) continue;
     try {
@@ -56,7 +56,19 @@ export async function processRender(input: {
   }
 
   const total = Math.max(1, Math.min(3, variantCount));
-  for (let index = 0; index < total; index += 1) {
+  const existing = await prisma.projectRender.findMany({
+    where: { projectId, selectionId, kind: "preview" },
+    select: { variantIndex: true },
+  });
+  const existingIndexes = new Set(existing.map((render) => render.variantIndex));
+  const missing = Array.from({ length: total }, (_, index) => index).filter((index) => !existingIndexes.has(index));
+  if (missing.length === 0) {
+    const latest = await prisma.project.findUnique({ where: { id: projectId }, select: { status: true } });
+    if (latest && latest.status !== "done" && latest.status !== "finalizing") await setStatus(projectId, "review");
+    return;
+  }
+
+  const renderVariant = async (index: number): Promise<void> => {
     const hint = [layout?.hint, VARIANTS[index % VARIANTS.length]].filter(Boolean).join(". ");
     const result = await renderPreview({
       projectId,
@@ -87,9 +99,18 @@ export async function processRender(input: {
 
     await publishProjectEvent(projectId, {
       status: "rendering",
-      message: `Готов вариант ${index + 1} из ${total}`,
+      message: `Вариант ${index + 1} готов`,
       payload: { variantIndex: index, url: `/api/files/${file.id}` },
     });
+  };
+
+  const results = await Promise.allSettled(missing.map((index) => renderVariant(index)));
+  const failed = results.filter((result) => result.status === "rejected");
+  for (const failure of failed) {
+    console.error("[render] вариант не сгенерирован:", failure.reason instanceof Error ? failure.reason.message : failure.reason);
+  }
+  if (failed.length === results.length) {
+    throw failed[0]?.status === "rejected" ? failed[0].reason : new Error("Не удалось сгенерировать варианты");
   }
 
   const latest = await prisma.project.findUnique({ where: { id: projectId }, select: { status: true } });
