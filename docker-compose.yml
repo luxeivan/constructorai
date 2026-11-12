@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: werstakoff
+      POSTGRES_PASSWORD: werstakoff
+      POSTGRES_DB: werstakoff
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U werstakoff -d werstakoff"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+    restart: unless-stopped
+    command: >
+      sh -c "pnpm --filter @werstakoff/db exec prisma migrate deploy &&
+             pnpm --filter @werstakoff/db exec tsx src/seed.ts &&
+             node apps/api/dist/index.js"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://werstakoff:werstakoff@postgres:5432/werstakoff
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: fs
+      STORAGE_DIR: /app/storage
+      MINIO_BUCKET: werstakoff
+      PUBLIC_BASE_URL: http://localhost:8080
+      ADMIN_LOGIN: admin
+      ADMIN_PASSWORD: admin12345
+      AI_SESSION_BUDGET_RUB: 60
+      CATALOG_FILE: /app/items.json
+    volumes:
+      - storagedata:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+    restart: unless-stopped
+    command: node apps/worker/dist/index.js
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://werstakoff:werstakoff@postgres:5432/werstakoff
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: fs
+      STORAGE_DIR: /app/storage
+      MINIO_BUCKET: werstakoff
+      AI_SESSION_BUDGET_RUB: 60
+      CATALOG_FILE: /app/items.json
+    volumes:
+      - storagedata:/app/storage
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8081:80"
+
+volumes:
+  pgdata:
+  redisdata:
+  storagedata:

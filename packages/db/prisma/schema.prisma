@@ -1,0 +1,397 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  sessions Session[]
+  projects Project[]
+  orders   Order[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  ip        String?
+  userAgent String?  @map("user_agent")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("sessions")
+}
+
+model AdminUser {
+  id           String   @id @default(uuid()) @db.Uuid
+  login        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  sessions AdminSession[]
+
+  @@map("admin_users")
+}
+
+model AdminSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  adminId   String   @map("admin_id") @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("admin_sessions")
+}
+
+model Project {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  title     String
+  status    String    @default("draft")
+  error     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photos      ProjectPhoto[]
+  room        ProjectRoom?
+  answers     WizardAnswer[]
+  selections  ProjectSelection[]
+  renders     ProjectRender[]
+  corrections Correction[]
+  orders      Order[]
+  aiJobs      AiJob[]
+  aiUsage     AiUsage[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("projects")
+}
+
+model ProjectPhoto {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  kind      String
+  fileId    String   @map("file_id") @db.Uuid
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file    FileObject @relation(fields: [fileId], references: [id])
+
+  @@index([projectId])
+  @@map("project_photos")
+}
+
+model ProjectRoom {
+  id              String   @id @default(uuid()) @db.Uuid
+  projectId       String   @unique @map("project_id") @db.Uuid
+  roomType        String?  @map("room_type")
+  wallLengthMm    Int?     @map("wall_length_mm")
+  widthMm         Int?     @map("width_mm")
+  depthMm         Int?     @map("depth_mm")
+  heightMm        Int?     @map("height_mm")
+  hasWindow       Boolean  @default(false) @map("has_window")
+  hasDoor         Boolean  @default(false) @map("has_door")
+  featuresJson    Json?    @map("features_json")
+  confirmedByUser Boolean  @default(false) @map("confirmed_by_user")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_rooms")
+}
+
+model WizardAnswer {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  questionKey String  @map("question_key")
+  answerJson Json     @map("answer_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, questionKey])
+  @@map("wizard_answers")
+}
+
+model ProjectSelection {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  version    Int      @default(1)
+  reason     String   @default("initial")
+  totalRub   Int      @default(0) @map("total_rub")
+  layoutJson Json?    @map("layout_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  items   SelectionItem[]
+  renders ProjectRender[]
+
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@map("project_selections")
+}
+
+model SelectionItem {
+  id           String @id @default(uuid()) @db.Uuid
+  selectionId  String @map("selection_id") @db.Uuid
+  variantId    String @map("variant_id") @db.Uuid
+  qty          Int    @default(1)
+  unitPriceRub Int    @map("unit_price_rub")
+  positionJson Json?  @map("position_json")
+
+  selection ProjectSelection @relation(fields: [selectionId], references: [id], onDelete: Cascade)
+  variant   CatalogVariant   @relation(fields: [variantId], references: [id])
+
+  @@index([selectionId])
+  @@map("selection_items")
+}
+
+model ProjectRender {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  selectionId String?  @map("selection_id") @db.Uuid
+  kind        String
+  variantIndex Int     @default(0) @map("variant_index")
+  fileId      String   @map("file_id") @db.Uuid
+  prompt      String?
+  model       String?
+  costRub     Float    @default(0) @map("cost_rub")
+  approved    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  selection ProjectSelection? @relation(fields: [selectionId], references: [id])
+  file      FileObject        @relation(fields: [fileId], references: [id])
+  corrections Correction[]
+
+  @@index([projectId, kind])
+  @@map("project_renders")
+}
+
+model Correction {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  renderId  String?  @map("render_id") @db.Uuid
+  text      String
+  intentJson Json?   @map("intent_json")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  render  ProjectRender? @relation(fields: [renderId], references: [id])
+
+  @@index([projectId])
+  @@map("corrections")
+}
+
+model Order {
+  id         String   @id @default(uuid()) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  number     String   @unique
+  status     String   @default("created")
+  totalRub   Int      @default(0) @map("total_rub")
+  pdfFileId  String?  @map("pdf_file_id") @db.Uuid
+  snapshotJson Json? @map("snapshot_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project Project     @relation(fields: [projectId], references: [id])
+  user    User        @relation(fields: [userId], references: [id])
+  pdfFile FileObject? @relation(fields: [pdfFileId], references: [id])
+  items   OrderItem[]
+
+  @@index([userId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String @id @default(uuid()) @db.Uuid
+  orderId   String @map("order_id") @db.Uuid
+  variantId String? @map("variant_id") @db.Uuid
+  name      String
+  article   String
+  dimensions String?
+  qty       Int    @default(1)
+  priceRub  Int    @map("price_rub")
+
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant CatalogVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model CatalogCategory {
+  id         String   @id @default(uuid()) @db.Uuid
+  externalId String?  @unique @map("external_id")
+  parentId   String?  @map("parent_id") @db.Uuid
+  slug       String   @unique
+  name       String
+  sort       Int      @default(0)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  parent   CatalogCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children CatalogCategory[] @relation("CategoryTree")
+  models   CatalogModel[]
+
+  @@map("catalog_categories")
+}
+
+model CatalogModel {
+  id          String   @id @default(uuid()) @db.Uuid
+  categoryId  String   @map("category_id") @db.Uuid
+  name        String
+  brandSeries String?  @map("brand_series")
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  category CatalogCategory  @relation(fields: [categoryId], references: [id])
+  variants CatalogVariant[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+  @@map("catalog_models")
+}
+
+model CatalogVariant {
+  id            String   @id @default(uuid()) @db.Uuid
+  modelId       String   @map("model_id") @db.Uuid
+  externalId    Int      @unique @map("external_id")
+  article       String
+  name          String
+  priceRub      Int      @default(0) @map("price_rub")
+  widthMm       Int?     @map("width_mm")
+  depthMm       Int?     @map("depth_mm")
+  heightMm      Int?     @map("height_mm")
+  color         String?
+  shelfLoadKg   Int?     @map("shelf_load_kg")
+  imageFileId   String?  @map("image_file_id") @db.Uuid
+  isActive      Boolean  @default(true) @map("is_active")
+  hasDimensions Boolean  @default(false) @map("has_dimensions")
+  rawJson       Json?    @map("raw_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  model          CatalogModel    @relation(fields: [modelId], references: [id])
+  imageFile      FileObject?     @relation(fields: [imageFileId], references: [id])
+  props          CatalogProp[]
+  selectionItems SelectionItem[]
+  orderItems     OrderItem[]
+
+  @@index([modelId])
+  @@index([isActive])
+  @@map("catalog_variants")
+}
+
+model CatalogProp {
+  id        String @id @default(uuid()) @db.Uuid
+  variantId String @map("variant_id") @db.Uuid
+  key       String
+  valueText String? @map("value_text")
+  valueNum  Float?  @map("value_num")
+
+  variant CatalogVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([variantId])
+  @@map("catalog_props")
+}
+
+model FileObject {
+  id        String   @id @default(uuid()) @db.Uuid
+  bucket    String
+  key       String
+  mime      String
+  size      Int
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  projectPhotos ProjectPhoto[]
+  renders       ProjectRender[]
+  orders        Order[]
+  catalogImages CatalogVariant[]
+
+  @@unique([bucket, key])
+  @@map("files")
+}
+
+model AiJob {
+  id          String    @id @default(uuid()) @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  type        String
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  error       String?
+  payloadJson Json?     @map("payload_json")
+  resultJson  Json?     @map("result_json")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  finishedAt  DateTime? @map("finished_at")
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+  @@map("ai_jobs")
+}
+
+model AiUsage {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String?  @map("project_id") @db.Uuid
+  step         String
+  model        String
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  costRub      Float    @default(0) @map("cost_rub")
+  durationMs   Int      @default(0) @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([createdAt])
+  @@map("ai_usage")
+}
+
+model Setting {
+  key       String   @id
+  valueJson Json     @map("value_json")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actor      String
+  action     String
+  entity     String
+  entityId   String?  @map("entity_id")
+  payloadJson Json?   @map("payload_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("audit_log")
+}

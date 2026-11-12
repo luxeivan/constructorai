@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #302876;
+  --color-brand-dark: #1f1a4f;
+  --color-accent: #e62460;
+  --color-ink: #14141a;
+  --color-muted: #6b7280;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-neutral-100 text-neutral-900 antialiased;
+  font-family: var(--font-sans);
+}
+
+.btn,
+.btn-primary,
+.btn-accent,
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.btn-primary {
+  @apply bg-brand text-white hover:bg-brand-dark;
+}
+
+.btn-accent {
+  @apply bg-accent text-white hover:brightness-95;
+}
+
+.btn-ghost {
+  @apply border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50;
+}
+
+.card {
+  @apply rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm;
+}
+
+.input {
+  @apply w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+}
+
+.label {
+  @apply mb-1.5 block text-sm font-medium text-neutral-700;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+}

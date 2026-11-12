@@ -1,0 +1,30 @@
+{
+  "name": "@werstakoff/catalog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "import": "dotenv -e ../../.env -- tsx src/import.ts"
+  },
+  "dependencies": {
+    "@werstakoff/core": "workspace:*",
+    "@werstakoff/db": "workspace:*",
+    "@werstakoff/storage": "workspace:*",
+    "cheerio": "^1.0.0",
+    "sharp": "^0.34.1"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^8.0.0",
+    "tsx": "^4.19.3"
+  }
+}

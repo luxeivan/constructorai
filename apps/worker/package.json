@@ -1,0 +1,29 @@
+{
+  "name": "@werstakoff/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@werstakoff/ai": "workspace:*",
+    "@werstakoff/catalog": "workspace:*",
+    "@werstakoff/core": "workspace:*",
+    "@werstakoff/db": "workspace:*",
+    "@werstakoff/packing": "workspace:*",
+    "@werstakoff/pdf": "workspace:*",
+    "@werstakoff/queue": "workspace:*",
+    "@werstakoff/storage": "workspace:*",
+    "bullmq": "^5.49.0",
+    "sharp": "^0.34.1"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^8.0.0",
+    "tsx": "^4.19.3"
+  }
+}

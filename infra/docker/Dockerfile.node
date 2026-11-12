@@ -1,0 +1,30 @@
+FROM node:22-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN npm i -g pnpm@10
+WORKDIR /app
+
+COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/ai/package.json packages/ai/
+COPY packages/storage/package.json packages/storage/
+COPY packages/queue/package.json packages/queue/
+COPY packages/catalog/package.json packages/catalog/
+COPY packages/packing/package.json packages/packing/
+COPY packages/pdf/package.json packages/pdf/
+COPY apps/api/package.json apps/api/
+COPY apps/worker/package.json apps/worker/
+COPY apps/web/package.json apps/web/
+
+RUN pnpm install --no-frozen-lockfile
+
+COPY . .
+RUN pnpm --filter @werstakoff/db exec prisma generate
+RUN pnpm build
+
+FROM node:22-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN npm i -g pnpm@10
+WORKDIR /app
+COPY --from=build /app /app
+ENV NODE_ENV=production
