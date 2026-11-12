@@ -21,6 +21,7 @@ export function Account() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const orders = useQuery({ queryKey: ["orders"], queryFn: api.orders });
   const create = useMutation({
     mutationFn: api.createProject,
     onSuccess: (data) => navigate(`/project/${data.project.id}`),
@@ -73,6 +74,35 @@ export function Account() {
           </Link>
         ))}
       </div>
+
+      {(orders.data?.orders.length ?? 0) > 0 ? (
+        <section className="mt-12">
+          <h2 className="text-xl font-bold">Мои заказы</h2>
+          <div className="mt-4 space-y-3">
+            {orders.data?.orders.map((order) => (
+              <div key={String(order.id)} className="card flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{String(order.number)}</p>
+                  <p className="text-sm text-neutral-500">
+                    {new Date(String(order.createdAt)).toLocaleDateString("ru-RU")} ·{" "}
+                    {Number(order.totalRub ?? 0).toLocaleString("ru-RU")} ₽
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {order.pdfUrl ? (
+                    <a className="btn-ghost" href={String(order.pdfUrl)} target="_blank" rel="noreferrer">
+                      Скачать PDF
+                    </a>
+                  ) : null}
+                  <Link className="btn-ghost" to={`/project/${String(order.projectId)}`}>
+                    Открыть проект
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-12 rounded-2xl border border-red-200 bg-red-50 p-6">
         <h2 className="font-semibold text-red-800">Удаление данных</h2>

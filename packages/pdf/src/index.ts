@@ -1,6 +1,8 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import PDFDocument from "pdfkit";
+import fontkit from "@pdf-lib/fontkit";
+import { PDFDocument, rgb, type PDFFont, type PDFPage, type RGB } from "pdf-lib";
 import type { Settings } from "@werstakoff/core";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -34,151 +36,278 @@ export type PdfInput = {
   logoBuffer?: Buffer | null;
 };
 
-const PAGE_MARGIN = 40;
-const CONTENT_WIDTH = 595.28 - PAGE_MARGIN * 2;
+const PAGE_WIDTH = 595.28;
+const PAGE_HEIGHT = 841.89;
+const MARGIN = 40;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+const BOTTOM = 50;
+
+const COLOR_TEXT = rgb(0.07, 0.07, 0.07);
+const COLOR_MUTED = rgb(0.33, 0.33, 0.33);
+const COLOR_LINE = rgb(0.8, 0.8, 0.8);
+
+type Fonts = { regular: PDFFont; bold: PDFFont };
 
 function formatMoney(value: number): string {
   return `${value.toLocaleString("ru-RU")} ₽`;
 }
 
-function formatDimensions(item: PdfOrderItem): string {
-  return item.dimensions || "—";
+function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [""];
+}
+
+class Layout {
+  page: PDFPage;
+  y = MARGIN;
+
+  constructor(
+    private doc: PDFDocument,
+    private fonts: Fonts,
+  ) {
+    this.page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  }
+
+  newPage(): void {
+    this.page = this.doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    this.y = MARGIN;
+  }
+
+  ensure(height: number): void {
+    if (this.y + height > PAGE_HEIGHT - BOTTOM) this.newPage();
+  }
+
+  text(
+    value: string,
+    options: {
+      font?: "regular" | "bold";
+      size?: number;
+      color?: RGB;
+      x?: number;
+      width?: number;
+      lineHeight?: number;
+      align?: "left" | "right";
+    } = {},
+  ): void {
+    const font = this.fonts[options.font ?? "regular"];
+    const size = options.size ?? 10;
+    const width = options.width ?? CONTENT_WIDTH;
+    const lineHeight = options.lineHeight ?? size * 1.35;
+    const x = options.x ?? MARGIN;
+
+    for (const line of wrap(value, font, size, width)) {
+      this.ensure(lineHeight);
+      const textWidth = font.widthOfTextAtSize(line, size);
+      const drawX = options.align === "right" ? x + width - textWidth : x;
+      this.page.drawText(line, {
+        x: drawX,
+        y: PAGE_HEIGHT - this.y - size,
+        size,
+        font,
+        color: options.color ?? COLOR_TEXT,
+      });
+      this.y += lineHeight;
+    }
+  }
+
+  gap(value: number): void {
+    this.y += value;
+  }
+
+  row(
+    cells: Array<{ value: string; x: number; width: number; font?: "regular" | "bold" }>,
+    size = 8,
+    color: RGB = COLOR_TEXT,
+  ): void {
+    const prepared = cells.map((cell) => ({
+      ...cell,
+      lines: wrap(cell.value, this.fonts[cell.font ?? "regular"], size, cell.width),
+    }));
+    const lineCount = Math.max(...prepared.map((cell) => cell.lines.length));
+    const lineHeight = size * 1.35;
+    const height = lineCount * lineHeight + 3;
+    this.ensure(height);
+    const top = this.y;
+    for (const cell of prepared) {
+      const font = this.fonts[cell.font ?? "regular"];
+      cell.lines.forEach((line, index) => {
+        this.page.drawText(line, {
+          x: cell.x,
+          y: PAGE_HEIGHT - top - size - index * lineHeight,
+          size,
+          font,
+          color,
+        });
+      });
+    }
+    this.y = top + height;
+  }
+
+  line(): void {
+    this.ensure(10);
+    this.page.drawLine({
+      start: { x: MARGIN, y: PAGE_HEIGHT - this.y },
+      end: { x: PAGE_WIDTH - MARGIN, y: PAGE_HEIGHT - this.y },
+      thickness: 0.7,
+      color: COLOR_LINE,
+    });
+    this.y += 8;
+  }
 }
 
 export async function buildOrderPdf(input: PdfInput): Promise<Buffer> {
-  const doc = new PDFDocument({ size: "A4", margin: PAGE_MARGIN, bufferPages: true });
-  doc.registerFont("regular", FONT_REGULAR);
-  doc.registerFont("bold", FONT_BOLD);
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
 
-  const chunks: Buffer[] = [];
-  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  const finished = new Promise<Buffer>((resolve, reject) => {
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-  });
+  const fonts: Fonts = {
+    regular: await doc.embedFont(await readFile(FONT_REGULAR), { subset: true }),
+    bold: await doc.embedFont(await readFile(FONT_BOLD), { subset: true }),
+  };
+
+  const layout = new Layout(doc, fonts);
+  const company = input.settings.companyName || "Верстакофф";
 
   if (input.logoBuffer) {
     try {
-      doc.image(input.logoBuffer, PAGE_MARGIN, PAGE_MARGIN, { height: 34 });
-      doc.y = PAGE_MARGIN + 44;
+      const logo = input.logoBuffer.toString("latin1").startsWith("\x89PNG")
+        ? await doc.embedPng(input.logoBuffer)
+        : await doc.embedJpg(input.logoBuffer);
+      const logoHeight = 34;
+      const logoWidth = (logo.width / logo.height) * logoHeight;
+      layout.page.drawImage(logo, {
+        x: MARGIN,
+        y: PAGE_HEIGHT - layout.y - logoHeight,
+        width: logoWidth,
+        height: logoHeight,
+      });
+      layout.y += logoHeight + 10;
     } catch {
-      doc.font("bold").fontSize(20).text(input.settings.companyName || "Верстакофф");
+      layout.text(company, { font: "bold", size: 20 });
     }
   } else {
-    doc.font("bold").fontSize(20).text(input.settings.companyName || "Верстакофф");
+    layout.text(company, { font: "bold", size: 20 });
   }
 
-  doc.font("regular").fontSize(9).fillColor("#555555");
-  const contactLine = [input.settings.phone, input.settings.email, input.settings.site]
-    .filter(Boolean)
-    .join(" · ");
-  if (contactLine) doc.text(contactLine);
-  if (input.settings.address) doc.text(input.settings.address);
-  doc.moveDown(0.8);
+  const contactLine = [input.settings.phone, input.settings.email, input.settings.site].filter(Boolean).join(" · ");
+  if (contactLine) layout.text(contactLine, { size: 9, color: COLOR_MUTED });
+  if (input.settings.address) layout.text(input.settings.address, { size: 9, color: COLOR_MUTED });
+  layout.gap(10);
 
-  doc.fillColor("#111111").font("bold").fontSize(16).text(`Коммерческое предложение № ${input.orderNumber}`);
-  doc.font("regular").fontSize(10).fillColor("#555555");
-  doc.text(`Дата: ${input.createdAt.toLocaleDateString("ru-RU")}`);
-  doc.text(`Клиент: ${input.customerEmail}`);
-  doc.moveDown(0.6);
+  layout.text(`Коммерческое предложение № ${input.orderNumber}`, { font: "bold", size: 16 });
+  layout.text(`Дата: ${input.createdAt.toLocaleDateString("ru-RU")}`, { size: 10, color: COLOR_MUTED });
+  layout.text(`Клиент: ${input.customerEmail}`, { size: 10, color: COLOR_MUTED });
+  layout.gap(10);
 
-  doc.fillColor("#111111").font("bold").fontSize(11).text("Параметры помещения");
-  doc.font("regular").fontSize(10);
-  doc.text(
+  layout.text("Параметры помещения", { font: "bold", size: 11 });
+  layout.text(
     `Длина стены: ${input.room.wallLengthMm} мм · Ширина: ${input.room.widthMm} мм · Высота: ${input.room.heightMm} мм`,
+    { size: 10 },
   );
-  doc.text(`Окно: ${input.room.hasWindow ? "есть" : "нет"} · Дверь: ${input.room.hasDoor ? "есть" : "нет"}`);
-  if (input.room.features) doc.text(`Особенности: ${input.room.features}`);
-  doc.moveDown(0.6);
+  layout.text(`Окно: ${input.room.hasWindow ? "есть" : "нет"} · Дверь: ${input.room.hasDoor ? "есть" : "нет"}`, {
+    size: 10,
+  });
+  if (input.room.features) layout.text(`Особенности: ${input.room.features}`, { size: 10 });
+  layout.gap(10);
 
-  const imageWidth = CONTENT_WIDTH;
-  const imageHeight = Math.min(300, imageWidth * 0.62);
   try {
-    doc.image(input.imageBuffer, PAGE_MARGIN, doc.y, {
-      fit: [imageWidth, imageHeight],
-      align: "center",
+    const image = input.imageBuffer.toString("latin1").startsWith("\x89PNG")
+      ? await doc.embedPng(input.imageBuffer)
+      : await doc.embedJpg(input.imageBuffer);
+    const maxHeight = 300;
+    const scale = Math.min(CONTENT_WIDTH / image.width, maxHeight / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    layout.ensure(height + 10);
+    layout.page.drawImage(image, {
+      x: MARGIN + (CONTENT_WIDTH - width) / 2,
+      y: PAGE_HEIGHT - layout.y - height,
+      width,
+      height,
     });
-    doc.y += imageHeight + 12;
+    layout.y += height + 12;
   } catch {
-    doc.text("Изображение недоступно");
+    layout.text("Изображение недоступно", { size: 9, color: COLOR_MUTED });
   }
-
-  doc.font("bold").fontSize(11).text("Состав заказа");
-  doc.moveDown(0.3);
 
   const columns = [
-    { label: "Наименование", width: 215 },
+    { label: "Наименование", width: 205 },
     { label: "Артикул", width: 70 },
     { label: "Габариты, мм", width: 95 },
     { label: "Кол-во", width: 45 },
-    { label: "Цена", width: 60 },
+    { label: "Цена", width: 70 },
   ];
 
-  function drawHeader(): void {
-    const y = doc.y;
-    doc.font("bold").fontSize(8).fillColor("#333333");
-    let x = PAGE_MARGIN;
-    for (const column of columns) {
-      doc.text(column.label, x, y, { width: column.width, align: "left" });
-      x += column.width;
-    }
-    doc.moveDown(0.4);
-    doc
-      .moveTo(PAGE_MARGIN, doc.y)
-      .lineTo(PAGE_MARGIN + CONTENT_WIDTH, doc.y)
-      .strokeColor("#cccccc")
-      .stroke();
-    doc.moveDown(0.3);
-  }
+  const drawHeader = (): void => {
+    let x = MARGIN;
+    layout.row(
+      columns.map((column) => {
+        const cell = { value: column.label, x, width: column.width, font: "bold" as const };
+        x += column.width;
+        return cell;
+      }),
+      8,
+      COLOR_MUTED,
+    );
+    layout.line();
+  };
 
+  layout.text("Состав заказа", { font: "bold", size: 11 });
+  layout.gap(4);
   drawHeader();
 
   for (const item of input.items) {
-    const rowY = doc.y;
-    doc.font("regular").fontSize(8).fillColor("#111111");
-    const nameHeight = doc.heightOfString(item.name, { width: columns[0]!.width });
-    const rowHeight = Math.max(14, nameHeight);
-
-    if (rowY + rowHeight > 780) {
-      doc.addPage();
-      drawHeader();
-    }
-
-    let x = PAGE_MARGIN;
     const values = [
       item.name,
       item.article,
-      formatDimensions(item),
+      item.dimensions || "—",
       String(item.qty),
       formatMoney(item.priceRub),
     ];
-    values.forEach((value, index) => {
+
+    let x = MARGIN;
+    const cells = values.map((value, index) => {
       const column = columns[index]!;
-      doc.text(value, x, rowY, { width: column.width, align: "left" });
+      const cell = { value, x, width: column.width };
       x += column.width;
+      return cell;
     });
-    doc.y = rowY + rowHeight + 4;
+
+    const estimated = Math.max(
+      ...cells.map((cell, index) => wrap(cell.value, fonts.regular, 8, columns[index]!.width).length),
+    );
+    if (layout.y + estimated * 10.8 + 6 > PAGE_HEIGHT - BOTTOM) {
+      layout.newPage();
+      drawHeader();
+    }
+
+    layout.row(cells);
+    layout.line();
   }
 
-  doc.moveDown(0.4);
-  doc
-    .moveTo(PAGE_MARGIN, doc.y)
-    .lineTo(PAGE_MARGIN + CONTENT_WIDTH, doc.y)
-    .strokeColor("#cccccc")
-    .stroke();
-  doc.moveDown(0.4);
-  doc.font("bold").fontSize(11).text(`Итого: ${formatMoney(input.totalRub)}`, { align: "right" });
+  layout.gap(2);
+  layout.text(`Итого: ${formatMoney(input.totalRub)}`, { font: "bold", size: 11, align: "right" });
 
-  doc.moveDown(1);
-  doc.font("bold").fontSize(10).text("Условия");
-  doc.font("regular").fontSize(9).fillColor("#333333");
-  if (input.settings.paymentTerms) doc.text(`Оплата: ${input.settings.paymentTerms}`);
-  if (input.settings.deliveryTerms) doc.text(`Доставка: ${input.settings.deliveryTerms}`);
-  doc.text(`Предложение действительно ${input.settings.offerValidityDays} дней.`);
-  if (input.settings.managerName) doc.text(`Менеджер: ${input.settings.managerName}`);
-  doc.moveDown(0.6);
-  doc.fontSize(8).fillColor("#777777").text(input.settings.disclaimer || "Не является публичной офертой.");
+  layout.gap(10);
+  layout.text("Условия", { font: "bold", size: 10 });
+  if (input.settings.paymentTerms) layout.text(`Оплата: ${input.settings.paymentTerms}`, { size: 9, color: COLOR_MUTED });
+  if (input.settings.deliveryTerms)
+    layout.text(`Доставка: ${input.settings.deliveryTerms}`, { size: 9, color: COLOR_MUTED });
+  layout.text(`Предложение действительно ${input.settings.offerValidityDays} дней.`, { size: 9, color: COLOR_MUTED });
+  if (input.settings.managerName) layout.text(`Менеджер: ${input.settings.managerName}`, { size: 9, color: COLOR_MUTED });
+  layout.gap(8);
+  layout.text(input.settings.disclaimer || "Не является публичной офертой.", { size: 8, color: COLOR_MUTED });
 
-  doc.end();
-  return finished;
+  return Buffer.from(await doc.save());
 }

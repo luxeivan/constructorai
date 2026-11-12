@@ -32,26 +32,43 @@ export async function processFinalize(input: { projectId: string; renderId: stri
   const room = await getRoom(projectId);
   const preview = await readFileById(render.fileId);
 
-  const final = await renderFinal({
-    projectId,
-    previewImage: { type: "base64", data: toDataUrl(preview.buffer, preview.mime) },
-    aspectRatio: "3:2",
+  const existingFinal = await prisma.projectRender.findFirst({
+    where: { projectId, kind: "final", selectionId: render.selectionId },
+    orderBy: { createdAt: "desc" },
   });
 
-  const finalFile = await saveBuffer(`projects/${projectId}/final`, final.buffer, final.mime, "jpg");
-  await prisma.projectRender.create({
-    data: {
+  let finalBuffer: Buffer;
+  let finalFileId: string;
+
+  if (existingFinal) {
+    const file = await readFileById(existingFinal.fileId);
+    finalBuffer = file.buffer;
+    finalFileId = existingFinal.fileId;
+  } else {
+    const final = await renderFinal({
       projectId,
-      selectionId: render.selectionId,
-      kind: "final",
-      variantIndex: 0,
-      fileId: finalFile.id,
-      prompt: "final 4K",
-      model: "google/gemini-nano-banana-2.1",
-      costRub: final.costRub,
-      approved: true,
-    },
-  });
+      previewImage: { type: "base64", data: toDataUrl(preview.buffer, preview.mime) },
+      aspectRatio: "3:2",
+    });
+
+    const finalFile = await saveBuffer(`projects/${projectId}/final`, final.buffer, final.mime, "jpg");
+    await prisma.projectRender.create({
+      data: {
+        projectId,
+        selectionId: render.selectionId,
+        kind: "final",
+        variantIndex: 0,
+        fileId: finalFile.id,
+        prompt: "final 4K",
+        model: "google/gemini-nano-banana-2.1",
+        costRub: final.costRub,
+        approved: true,
+      },
+    });
+
+    finalBuffer = final.buffer;
+    finalFileId = finalFile.id;
+  }
 
   const setting = await prisma.setting.findUnique({ where: { key: "company" } });
   const settings = settingsSchema.parse(setting?.valueJson ?? {});
@@ -101,7 +118,7 @@ export async function processFinalize(input: { projectId: string; renderId: stri
     },
     items,
     totalRub: render.selection.totalRub,
-    imageBuffer: final.buffer,
+    imageBuffer: finalBuffer,
     settings,
     logoBuffer,
   });
@@ -124,7 +141,7 @@ export async function processFinalize(input: { projectId: string; renderId: stri
         },
         items,
         renderId: render.id,
-        finalFileId: finalFile.id,
+        finalFileId,
       },
       items: {
         create: render.selection.items.map((item) => ({
