@@ -552,6 +552,7 @@ PHOTO_RETENTION_DAYS=365
 
 ## 17. Деплой
 
+Описание продукта, экономика и оценка стоимости для продажи: **[SERVICE.md](./SERVICE.md)**.
 Production-развёртывание: **[DEPLOY.md](./DEPLOY.md)** — пошаговая инструкция для ИИ-агента на Debian 13.
 
 - Домен: `constructorai.luxeivan.ru`, host-nginx → `127.0.0.1:8081` (порт контейнера `web` наружу не публикуется).
